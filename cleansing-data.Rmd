@@ -157,7 +157,8 @@ covid_age_gender_clean_df <- covid_age_gender_df %>%
   mutate(확진자 = ts_impute_vec(확진자, period = 1),
          검사자 = ts_impute_vec(검사자, period = 1),
          사망자 = ts_impute_vec(사망자, period = 1)) %>% 
-  select(날짜, 구분, 검사자, 확진자, 사망자)
+  select(날짜, 구분, 검사자, 확진자, 사망자, 감염율, 치명율) %>% 
+  ungroup
 
 covid_age_gender_clean_df %>% 
   write_rds("data/covid_age_gender_clean.rds")
