@@ -1,0 +1,228 @@
+---
+layout: page
+title: "한국 코로나19"
+subtitle: "데이터 가져오기"
+author:
+- name: "이광춘"
+  affiliation: "[Tidyverse Korea](https://www.facebook.com/groups/tidyverse/)"
+date: "`r Sys.Date()`"
+tags: ["데이터 과학", "Data Science", "데이터 사이언스", "코로나", "코로나19", "covid-19", "corona"]
+output:
+  html_document: 
+    include:
+      after_body: footer.html
+      before_body: header.html
+    theme: journal
+    toc: yes
+    toc_depth: 2
+    toc_float: true
+    highlight: tango
+    code_folding: show
+    number_section: true
+    self_contained: true
+bibliography: bibliography_corona.bib
+csl: biomed-central.csl
+urlcolor: blue
+linkcolor: blue
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message=FALSE, warning=FALSE,
+                      comment="", digits = 3, tidy = FALSE, prompt = FALSE, fig.align = 'center')
+
+```
+
+
+
+# 코로나 확진자 데이터 [^sido-covid] {#get-corona-dataset}
+
+[^sido-covid]: [Tsunami (2020. 7. 14. 00:08), "공공데이터API - 보건복지부_코로나19 시·도발생_현황"](https://zelkun.tistory.com/entry/공공데이터API-보건복지부코로나19-시·도발생현황)
+
+[공공데이터포털](https://www.data.go.kr/index.do) 웹사이트에서 코로나19 감염 현황에 대한 API를 제공하고 있다.
+전반적인 감염현황과 함께 연령별, 성별, 시도별 현황 정보도 함께 제공하고 있다.
+
+- 보건복지부_코로나19 감염_현황: 
+    - http://openapi.data.go.kr/openapi/service/rest/Covid19
+    - http://openapi.data.go.kr/openapi/service/rest/Covid19/getCovid19InfStateJson (감염_현황)
+    - http://openapi.data.go.kr/openapi/service/rest/Covid19/getCovid19GenAgeCaseInfJson (연령별·성별감염현황)
+    - http://openapi.data.go.kr/openapi/service/rest/Covid19/getCovid19SidoInfStateJson (시·도발생_현황) 
+
+# 감염현황 데이터 {#get-corona-dataset-confirmed}
+
+먼저 감염현황에 대한 데이터를 가져온다. 
+공공데이터포털에서 발급된 API KEY는 `usethis::use_r_environ()` 명령어로 외부에 노출되지 않도록 `.Renviron` 환경변수에 저장하여 `Sys.getenv('COVID_APIKEY')` 명령어로 API로 호출시 활용한다.
+
+```{r get-covid-confirmed}
+library(tidyverse)
+library(httr)
+library(rvest)
+library(glue)
+
+readRenviron("~/.Renviron")
+
+covid_confirmed_api <- glue("http://openapi.data.go.kr/openapi/service/rest/Covid19/getCovid19InfStateJson",
+                  "?serviceKey      = {Sys.getenv('COVID_APIKEY')}",
+                  "&pageNo          = 1",
+                  "&numOfRows       = 10",
+                  "&startCreateDt   = 20200410",
+                  "&endCreateDt     = 20200410") %>% str_remove_all(., " ")
+
+covid_confirmed_resp <- GET(covid_confirmed_api) %>% 
+  content(.) 
+
+# covid_confirmed_resp %>% 
+#   listviewer::jsonedit()
+```
+
+특정 날짜("2020-04-10")에 대해 확진자 현황 데이터를 얻게 되었다면 다음 단계로 JSON 자료형을 데이터프레임으로 변환시킨다.
+
+```{r get-covid-confirmed-df, eval = FALSE}
+covid_confirmed_df <- tibble(
+  "날짜"   = map_chr(covid_confirmed_resp$response$body$items$item, "createDt"),
+  "확진자" = map_chr(covid_confirmed_resp$response$body$items$item, "confCase"),
+  "감염율" = map_chr(covid_confirmed_resp$response$body$items$item, "confCaseRate"),
+  "사망자" = map_chr(covid_confirmed_resp$response$body$items$item, "death"),
+  "치명율" = map_chr(covid_confirmed_resp$response$body$items$item, "deathRate"),
+  "구분"   = map_chr(covid_confirmed_resp$response$body$items$item, "gubun")
+)
+
+covid_confirmed_df
+```
+
+# 성별, 연령별 {#get-corona-dataset-sex}
+
+먼저 특정일(`2020-12-20`) 기준 데이터를 추출해보자.
+공공데이터 포털에 API를 요청하게 되면 결과값이 JSON으로 반환되어 먼저 자료형을 일별한다.
+
+```{r get-covid-sex}
+
+covid_gender_api <- glue("http://openapi.data.go.kr/openapi/service/rest/Covid19/getCovid19GenAgeCaseInfJson",
+                  "?serviceKey      = {Sys.getenv('COVID_APIKEY')}",
+                  "&pageNo          = 1",
+                  "&numOfRows       = 10",
+                  "&startCreateDt   = 20201220",
+                  "&endCreateDt     = 20201220") %>% str_remove_all(., " ")
+
+covid_resp <- GET(covid_gender_api) %>% 
+  content(.) 
+
+covid_resp %>% 
+  listviewer::jsonedit()
+```
+
+JSON을 데이터프레임으로 변환시킨다. 
+성별과 연령대가 뒤섞여 있기 때문에 성별과 연령 데이터프레임으로 나눈다.
+
+```{r get-covid-sex-df}
+covid_dat <- tibble(
+  "날짜"   = map_chr(covid_resp$response$body$items$item, "createDt"),
+  "확진자" = map_int(covid_resp$response$body$items$item, "confCase"),
+  "감염율" = map_chr(covid_resp$response$body$items$item, "confCaseRate"),
+  "사망자" = map_int(covid_resp$response$body$items$item, "death"),
+  "치명율" = map_chr(covid_resp$response$body$items$item, "deathRate"),
+  "구분"   = map_chr(covid_resp$response$body$items$item, "gubun")
+)
+
+covid_dat
+```
+
+하루를 넘어 전체 기간에 대해서 연령별, 성별 코로나19 데이터를 가져온다.
+2020-04-01 부터 데이터를 제공하기 때문에 시작일을 2020-04-01 으로 특정하여 현재까지 데이터를 가져온다.
+
+```{r get-covid-ts}
+library(lubridate)
+
+# 전체 데이터 -----
+covid_age_gender_api <- glue("http://openapi.data.go.kr/openapi/service/rest/Covid19/getCovid19GenAgeCaseInfJson",
+                  "?serviceKey      = {Sys.getenv('COVID_APIKEY')}",
+                  "&pageNo          = 1",
+                  "&numOfRows       = 10",
+                  "&startCreateDt   = 20200401",
+                  "&endCreateDt     = 20201225") %>% str_remove_all(., " ")
+
+covid_age_gender_resp <- GET(covid_age_gender_api) %>% 
+  content(.) 
+
+covid_age_gender_df <- tibble(
+  "날짜"   = map_chr(covid_age_gender_resp$response$body$items$item, "createDt"),
+  "확진자" = map_int(covid_age_gender_resp$response$body$items$item, "confCase"),
+  "감염율" = map_chr(covid_age_gender_resp$response$body$items$item, "confCaseRate"),
+  "사망자" = map_int(covid_age_gender_resp$response$body$items$item, "death"),
+  "치명율" = map_chr(covid_age_gender_resp$response$body$items$item, "deathRate"),
+  "구분"   = map_chr(covid_age_gender_resp$response$body$items$item, "gubun")
+)
+
+covid_age_gender_df %>% 
+  write_rds("data/covid_age_gender.rds")
+
+covid_age_gender_df
+```
+
+# 시도별 {#get-corona-dataset-sido}
+
+시도별로 코로나19 확진자 및 사망자 데이터를 추출한다.
+공공데이터 포털에 API를 요청하게 되면 결과값이 JSON으로 반환되어 먼저 자료형을 일별한다.
+
+```{r get-covid-sido, eval = FALSE}
+
+covid_sido_api <- glue("http://openapi.data.go.kr/openapi/service/rest/Covid19/getCovid19SidoInfStateJson",
+                  "?serviceKey      = {Sys.getenv('COVID_APIKEY')}",
+                  "&pageNo          = 1",
+                  "&numOfRows       = 10",
+                  "&startCreateDt   = 20200410",
+                  "&endCreateDt     = 20200410") %>% str_remove_all(., " ")
+
+covid_sido_resp <- GET(covid_sido_api) %>% 
+  content(.) 
+
+covid_sido_resp %>% 
+  listviewer::jsonedit()
+```
+
+JSON을 데이터프레임으로 변환시킨다. 
+
+```{r get-covid-sido-df, eval = FALSE}
+covid_sido_dat <- tibble(
+  "날짜"   = map_chr(covid_resp$response$body$items$item, "createDt"),
+  "확진자" = map_int(covid_resp$response$body$items$item, "confCase"),
+  "감염율" = map_chr(covid_resp$response$body$items$item, "confCaseRate"),
+  "사망자" = map_int(covid_resp$response$body$items$item, "death"),
+  "치명율" = map_chr(covid_resp$response$body$items$item, "deathRate"),
+  "구분"   = map_chr(covid_resp$response$body$items$item, "gubun")
+)
+
+covid_sido_dat
+```
+
+하루를 넘어 전체 기간에 대해서 시도별 코로나19 데이터를 가져온다.
+2020-04-01 부터 데이터를 제공하기 때문에 시작일을 2020-04-01 으로 특정하여 현재까지 데이터를 가져온다.
+
+```{r get-covid-sido-ts, eval = FALSE}
+
+# 전체 데이터 -----
+covid_sido_api <- glue("http://openapi.data.go.kr/openapi/service/rest/Covid19/getCovid19SidoInfStateJson",
+                  "?serviceKey      = {Sys.getenv('COVID_APIKEY')}",
+                  "&pageNo          = 1",
+                  "&numOfRows       = 10",
+                  "&startCreateDt   = 20200401",
+                  "&endCreateDt     = 20201225") %>% str_remove_all(., " ")
+
+covid_sido_resp <- GET(covid_sido_api) %>% 
+  content(.) 
+
+covid_age_gender_dat <- tibble(
+  "날짜"   = map_chr(covid_sido_resp$response$body$items$item, "createDt"),
+  "확진자" = map_int(covid_sido_resp$response$body$items$item, "confCase"),
+  "감염율" = map_chr(covid_sido_resp$response$body$items$item, "confCaseRate"),
+  "사망자" = map_int(covid_sido_resp$response$body$items$item, "death"),
+  "치명율" = map_chr(covid_sido_resp$response$body$items$item, "deathRate"),
+  "구분"   = map_chr(covid_sido_resp$response$body$items$item, "gubun")
+)
+
+covid_sido_df %>% 
+  write_rds("data/covid_sido.rds")
+
+covid_sido_df
+```

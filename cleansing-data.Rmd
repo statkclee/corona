@@ -1,0 +1,167 @@
+---
+layout: page
+title: "한국 코로나19"
+subtitle: "데이터 정제(Cleansing)"
+author:
+- name: "이광춘"
+  affiliation: "[Tidyverse Korea](https://www.facebook.com/groups/tidyverse/)"
+date: "`r Sys.Date()`"
+tags: ["데이터 과학", "Data Science", "데이터 사이언스", "코로나", "코로나19", "covid-19", "corona"]
+output:
+  html_document: 
+    include:
+      after_body: footer.html
+      before_body: header.html
+    theme: journal
+    toc: yes
+    toc_depth: 2
+    toc_float: true
+    highlight: tango
+    code_folding: show
+    number_section: true
+    self_contained: true
+bibliography: bibliography_corona.bib
+csl: biomed-central.csl
+urlcolor: blue
+linkcolor: blue
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message=FALSE, warning=FALSE,
+                      comment="", digits = 3, tidy = FALSE, prompt = FALSE, fig.align = 'center')
+
+```
+
+
+
+# 성별, 연령별 {#clean-corona-dataset}
+
+공공데이터 포털에서 [데이터 가져오기](ingest-data.html)를 통해 입수한 데이터를 후속 시각화와 모형개발 작업을 위해 깔끔한 정제작업을 수행한다. 특히, 2020-11-06 중복된 행이 포함되어 중복 제거작업을 선행하여 처리한다.
+
+```{r clean-age-confirmed}
+library(tidyverse)
+library(httr)
+library(rvest)
+library(glue)
+library(lubridate)
+
+covid_age_gender_dat <- read_rds("data/covid_age_gender.rds")
+
+covid_age_gender_df <- covid_age_gender_dat %>% 
+  mutate(날짜 = ymd_hms(날짜) %>% as.Date(.)) %>% 
+  mutate(across(contains("율"), .fns = function(x) as.numeric(x) / 100)) %>% 
+  mutate(검사자 = 확진자 / 감염율) %>% 
+  distinct(., .keep_all = TRUE) %>% ## 2020-11-06 중복된 행이 포함되어 중복 제거작업
+  select(날짜, 검사자, everything())
+
+## 성별 ----
+covid_gender_df <- covid_age_gender_df %>% 
+  filter(str_detect(구분, pattern = "(남성)|(여성)")) %>% 
+  select(날짜, 구분, everything())
+
+# covid_gender_df
+
+## 연령별 ----
+covid_age_df <- covid_age_gender_df %>% 
+  filter(!str_detect(구분, pattern = "(남성)|(여성)"))
+
+covid_age_df
+```
+
+
+## * 시각화 {#clean-corona-timeseries-viz}
+
+본격적인 코로나19 작업을 수행하기 이전에 데이터에 대한 전반적인 이해를 높이기 위해 시각화를 한다.
+이를 통해서 2020년 4월 초기 서비스를 오픈하면서 일부 기술적인 문제로 데이터가 없는 문제가 발견되어 결측값을 보정해야만 된다.
+
+```{r clean-confirmed-viz}
+library(timetk)
+
+covid_confirmed_g <- covid_age_df %>% 
+  group_by(날짜) %>% 
+  timetk::summarise_by_time(.date_var = 날짜, 
+                            .by       = "day", 
+                            확진자    = sum(확진자),
+                            검사자    = sum(검사자)) %>% 
+  ungroup() %>% 
+  filter(날짜 < "2020-05-01") %>% 
+  pivot_longer(-날짜) %>% 
+  plot_time_series(.date_var     = 날짜, 
+                   .value        = value, 
+                   .color_var    = name,
+                   # .facet_vars = name,
+                   .smooth       = FALSE,
+                   .interactive  = FALSE
+  ) +
+  scale_colour_manual(values = c("red", "black"))  +
+  geom_point(size = 0.5, aes(color=name)) +
+  scale_y_continuous(labels = scales::comma) +
+  scale_x_date(labels = scales::date_format(format = "%Y-%m")) +
+  labs(title = "코로나19 검사자와 확진자 추세")
+
+plotly::ggplotly(covid_confirmed_g)
+```
+
+##  * 결측값 보간 {#clean-corona-fix-missing}
+
+2020-04-02 ~ 2020-04-06 사이 결측값이 있어 `pad_by_time()` 함수로 결측된 기간을 생성시키고 나서,
+`ts_impute_vec()` 함수로 선형보간(`period = 1`)을 통해 결측값을 채워넣는다.
+
+```{r clean-confirmed-missing}
+covid_age_df <- covid_age_df %>% 
+  group_by(날짜) %>% 
+  timetk::summarise_by_time(.date_var = 날짜, 
+                            .by       = "day", 
+                            확진자    = sum(확진자),
+                            검사자    = sum(검사자)) %>% 
+  ungroup() %>% 
+  timetk::pad_by_time(.date_var = 날짜, .by = "day")  %>% 
+  mutate(확진자 = ts_impute_vec(확진자, period = 1),
+         검사자 = ts_impute_vec(검사자, period = 1))
+
+covid_confirmed_clean_g <- covid_age_df %>% 
+  group_by(날짜) %>% 
+  timetk::summarise_by_time(.date_var = 날짜, 
+                            .by       = "day", 
+                            확진자    = sum(확진자),
+                            검사자    = sum(검사자)) %>% 
+  ungroup() %>% 
+  filter(날짜 < "2020-05-01") %>% 
+  pivot_longer(-날짜) %>% 
+  plot_time_series(.date_var     = 날짜, 
+                   .value        = value, 
+                   .color_var    = name,
+                   # .facet_vars = name,
+                   .smooth       = FALSE,
+                   .interactive  = FALSE
+  ) +
+  scale_colour_manual(values = c("red", "black"))  +
+  geom_point(size = 0.5, aes(color=name)) +
+  scale_y_continuous(labels = scales::comma) +
+  scale_x_date(labels = scales::date_format(format = "%Y-%m")) +
+  labs(title = "코로나19 검사자와 확진자 추세")
+
+plotly::ggplotly(covid_confirmed_clean_g)
+```
+
+## * 정제작업 저장  {#save-cleaned-data}
+
+데이터 정제 전략을 세웠다면 다음 단계로 데이터를 정제하여 저장시킨다.
+
+```{r clean-age-gender-confirmed}
+covid_age_gender_clean_df <- covid_age_gender_df %>% 
+  group_by(구분) %>% 
+  timetk::pad_by_time(.date_var = 날짜, .by = "day")  %>% 
+  mutate(확진자 = ts_impute_vec(확진자, period = 1),
+         검사자 = ts_impute_vec(검사자, period = 1),
+         사망자 = ts_impute_vec(사망자, period = 1)) %>% 
+  select(날짜, 구분, 검사자, 확진자, 사망자)
+
+covid_age_gender_clean_df %>% 
+  write_rds("data/covid_age_gender_clean.rds")
+
+covid_age_gender_clean_df
+```
+
