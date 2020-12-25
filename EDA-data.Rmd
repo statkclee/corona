@@ -131,3 +131,50 @@ covid_age_gender_df %>%
   labs(title = "코로나19 고연령층 성별 치명률 추세")
 ```
 
+# `COVID19` 데이터 {#covid19-datast}
+
+## 누적 시계열 그래프 {#covid19-datast-cumumulative}
+
+먼저 원본 데이터를 `timetk` 팩키지 `plot_time_series()` 함수를 사용해서 시각화해보자.
+
+```{r COVID19-EDA-cumulative}
+library(tidyverse)
+library(timetk)
+
+korea_df <- read_rds("data/COVID_korea.rds")
+
+korea_df %>% 
+  pivot_longer(-날짜, names_to = "구분", values_to="사람수") %>% 
+  plot_time_series(.date_var   = 날짜, 
+                   .value      = 사람수, 
+                   .facet_var  = 구분,
+                   .smooth     = FALSE,
+                   .facet_ncol = 2,
+                   .title      = "한국 코로나19 누적 추세")
+
+```
+
+## 일별 시계열 추세 {#covid19-datast-daily}
+
+먼저 원본 데이터를 가공하여 일별 추세를 `timetk` 팩키지 `plot_time_series()` 함수를 사용해서 시각화해보자.
+
+```{r COVID19-EDA-daily}
+korea_daily_df <- korea_df %>% 
+  mutate(검사자 = 누적검사자 - lag(누적검사자, n = 1L),
+         확진자 = 누적확진자 - lag(누적확진자, n = 1L),  
+         회복자 = 누적회복자 - lag(누적회복자, n = 1L),  
+         사망자 = 누적사망자 - lag(누적사망자, n = 1L) ) %>% 
+  drop_na() %>% 
+  select(-contains("누적"))
+
+  
+korea_daily_df %>% 
+  pivot_longer(-날짜, names_to = "구분", values_to="사람수") %>% 
+  plot_time_series(.date_var   = 날짜, 
+                   .value      = 사람수, 
+                   .facet_var  = 구분,
+                   .smooth     = FALSE,
+                   .facet_ncol = 2,
+                   .title      = "한국 코로나19 일별 추세")
+
+```

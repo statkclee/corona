@@ -14,6 +14,8 @@ title: "PDF를 데이터로 보는 올바른 자세"
 ## 학습목차 
 
 - [데이터 가져오기 - ingestion](ingest-data.html)
+    - [데이터 가져오기 - 위키백과](ingest-wiki-data.html)
+    - [데이터 가져오기 - 팩키지(`COVID19`)](ingest-pkg-data.html)
 - [데이터 정제하기 - cleansing](cleansing-data.html)
 - [탐색적 데이터 분석 - EDA](EDA-data.html)
 

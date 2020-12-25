@@ -1,0 +1,114 @@
+---
+layout: page
+title: "한국 코로나19"
+subtitle: "데이터 가져오기 - 위키백과"
+author:
+- name: "이광춘"
+  affiliation: "[Tidyverse Korea](https://www.facebook.com/groups/tidyverse/)"
+date: "`r Sys.Date()`"
+tags: ["데이터 과학", "Data Science", "데이터 사이언스", "코로나", "코로나19", "covid-19", "corona"]
+output:
+  html_document: 
+    include:
+      after_body: footer.html
+      before_body: header.html
+    theme: journal
+    toc: yes
+    toc_depth: 2
+    toc_float: true
+    highlight: tango
+    code_folding: show
+    number_section: true
+    self_contained: true
+bibliography: bibliography_corona.bib
+csl: biomed-central.csl
+urlcolor: blue
+linkcolor: blue
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message=FALSE, warning=FALSE,
+                      comment="", digits = 3, tidy = FALSE, prompt = FALSE, fig.align = 'center')
+
+```
+
+
+
+# 위키백과 데이터 [^wiki-covid] {#get-wiki-corona-dataset}
+
+[^wiki-covid]: [위키백과, "대한민국의_코로나19_범유행"](https://ko.wikipedia.org/wiki/대한민국의_코로나19_범유행)
+
+위키백과사전 [대한민국의_코로나19_범유행](https://ko.wikipedia.org/wiki/대한민국의_코로나19_범유행) 웹페이지에서 코로나19 확진자 현황 데이터를 추출한다. 
+
+```{r corona-wiki-data, eval = FALSE}
+library(tidyverse)
+library(rvest)
+library(httr)
+library(timetk)
+
+Sys.setlocale(locale = "C")
+
+covid19_url <- "https://ko.wikipedia.org/wiki/대한민국의_코로나19_범유행"
+
+confirmed_dat <- covid19_url %>% 
+  xml2::read_html() %>% 
+  html_nodes(xpath = '//*[@id="mw-content-text"]/div[1]/div[2]/table') %>% 
+  html_table(fill = TRUE) %>% 
+  .[[1]]
+
+Sys.setlocale(locale = "Korean")
+
+confirmed_dat %>% 
+  write_rds("data/wiki_confirmed_dat.rds")
+```
+
+
+```{r corona-wiki-data-clean}
+library(tidyverse)
+library(rvest)
+library(httr)
+library(timetk)
+
+confirmed_dat <- read_rds("data/wiki_confirmed_dat.rds")
+
+confirmed_df <- confirmed_dat %>% 
+  set_names(c("연도", "날짜", "누적확진", "누적사망", "누적격리해제")) %>% 
+  slice(3:n()) %>% 
+  filter(!str_detect(날짜, "(현재)|(v)")) %>% 
+  
+  # 날짜 -----
+  mutate(연도 = parse_number(연도)) %>% 
+  separate(날짜, into = c("월", "일")) %>% 
+  mutate(월 = str_pad(월, width = 2, side ="left", pad = 0),
+         일 = str_pad(일, width = 2, side ="left", pad = 0)) %>% 
+  unite(날짜, 연도:일, sep="-") %>% 
+  mutate(날짜 = lubridate::ymd(날짜)) %>% 
+  
+  # 누적확진 -----
+  mutate(누적확진 = ifelse(str_detect(누적확진, "월"), NA, 누적확진)) %>% 
+  filter(!is.na(누적확진)) %>% 
+  timetk::pad_by_time(.date_var = 날짜, .by="day", .pad_value = NA) %>% 
+  separate(누적확진, into = c("누적확진", "확진자"), sep ="명") %>% 
+  fill(누적확진, .direction = "down") %>% 
+  mutate(확진자 = ifelse(is.na(확진자), 0, 확진자),
+         확진자 = parse_number(확진자)) %>%  
+  
+  # 누적사망 -----
+  separate(누적사망, into = c("누적사망", "사망자"), sep ="명") %>% 
+  fill(누적사망, .direction = "down") %>% 
+  mutate(사망자 = parse_number(사망자),
+         사망자 = ifelse(is.na(사망자), 0, 사망자)) %>% 
+  
+  # 격리해제 -----
+  separate(누적격리해제, into = c("누적해제", "해제자"), sep ="명") %>% 
+  fill(누적해제, .direction = "down") %>% 
+  mutate(해제자 = parse_number(해제자),
+         해제자 = ifelse(is.na(해제자), 0, 해제자))
+  
+confirmed_df %>% 
+  reactable::reactable()
+
+```
+
