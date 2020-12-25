@@ -15,6 +15,7 @@ title: "PDF를 데이터로 보는 올바른 자세"
 
 - [데이터 가져오기 - ingestion](ingest-data.html)
 - [데이터 정제하기 - cleansing](cleansing-data.html)
+- [탐색적 데이터 분석 - EDA](EDA-data.html)
 
 ### [xwMOOC 오픈 교재](https://statkclee.github.io/xwMOOC/)
 

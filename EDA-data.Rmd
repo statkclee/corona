@@ -55,7 +55,7 @@ covid_age_gender_df <- read_rds("data/covid_age_gender_clean.rds")
 covid_age_gender_df
 ```
 
-# 추세 {#EDA-trend}
+## * 추세 {#EDA-trend}
 
 탐색적 데이터 분석을 통해 전반적인 추세를 살펴봄으로 인해 숨겨진 데이터의 오류도 찾아낼 수 있다.
 
@@ -91,9 +91,11 @@ covid_age_gender_df %>%
 
 ```
 
-# 연령별 치명률 {#mortality}
+## * 연령별 치명률 {#mortality}
 
-```{r}
+연령대별로 치명률(Death Rate)을 치명률이 높은 고연령대를 중심으로 시각화하면 연령대가 높아짐에 따라 높아짐을 확인할 수 있다.
+
+```{r covid-death-rate}
 covid_age_gender_df %>% 
   mutate(치명율 = 치명율 * 100) %>% 
   filter(!str_detect(구분, pattern = "(남성)|(여성)")) %>% 
@@ -104,7 +106,28 @@ covid_age_gender_df %>%
                            .interactive  = FALSE,
                            .smooth       = FALSE,
                            .facet_ncol   = 4,
-                           .facet_scales = "fixed")
+                           .facet_scales = "fixed") +
+  scale_y_continuous(labels = scales::comma) +
+  scale_x_date(labels = scales::date_format(format = "%y-%m")) +
+  labs(title = "코로나19 연령대별 치명률 추세")
+```
 
+고연령층(50세 이상)을 대상으로 살펴보면 남성이 여성보다 다소 높은 것을 확인할 수 있다.
+
+```{r covid-death-rate-sex}
+covid_age_gender_df %>% 
+  mutate(치명율 = 치명율 * 100) %>% 
+  filter(!str_detect(구분, "(0-11)|(0-9)|(10-19)|(20-29)|(30-39)|(40-49)")) %>% 
+  filter(str_detect(구분, pattern = "(남성)|(여성)")) %>% 
+  timetk::plot_time_series(.date_var     = 날짜, 
+                           .value        = 치명율, 
+                           .facet_var    = 구분,
+                           .interactive  = FALSE,
+                           .smooth       = FALSE,
+                           .facet_ncol   = 2,
+                           .facet_scales = "fixed") +
+  scale_y_continuous(labels = scales::comma) +
+  scale_x_date(labels = scales::date_format(format = "%y-%m")) +
+  labs(title = "코로나19 고연령층 성별 치명률 추세")
 ```
 
