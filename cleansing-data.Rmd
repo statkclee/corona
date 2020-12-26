@@ -166,3 +166,79 @@ covid_age_gender_clean_df %>%
 covid_age_gender_clean_df
 ```
 
+
+# 지역별 {#clean-corona-sido-dataset}
+
+시도별 데이터를 지역별로 처리하기 위해 문자형으로 되어 있는 자료구조를 날짜형, 범주형, 숫자형으로 변환시키고 불필요한 데이터를 제거하고 결측값에 대한 시계열 전처리 작업을 수행한다.
+
+```{r clean-sido}
+library(tidyverse)
+library(timetk)
+
+sido_dat <- read_rds("data/covid_sido_orig.rds")
+
+sido_daily_tbl <- sido_dat %>% 
+  arrange(날짜) %>% 
+  
+  # 17개 시도만 추출 ----
+  filter(시도 %in% c("강원", "경기", "경남", "경북", "광주", "대구", "대전", "부산", 
+                   "서울", "세종", "울산", "인천", "전남", "전북", "제주", "충남", "충북")) %>% 
+  
+  # 시계열 날짜 자료형 변환 ----
+  mutate(날짜 = lubridate::ymd_hms(날짜) %>% as.Date(.)) %>% 
+  
+  # 숫자형 자료변환 ----
+  mutate(across(확진자:격리해제, .fns = as.numeric)) %>% 
+  
+  # 시도를 범주형으로 변환시킨 후에 인구수 기준으로 범주 정렬 
+  mutate(시도 = factor(시도, levels = c("경기", "서울", "부산", "경남", "인천", "경북", "대구", "충남", "전남", "전북", "충북", "강원", "대전", "광주", "울산", "제주", "세종")))
+
+
+# 결측값 일괄 처리를 위한 도움 함수
+impute_na <- function(x) {
+  x <- ifelse(is.na(x), 0, x)
+  return(x)
+}
+
+# impute_na(sido_daily_tbl$확진자)
+
+sido_daily_tbl <- sido_daily_tbl %>% 
+  # 빠진 날짜 결측값 ----
+  pad_by_time(.date_var = 날짜, .by = "day") %>% 
+  
+  # 결측값 채워넣기 ----
+  fill(확진자:격리해제, .direction = "down") %>% 
+  
+  # 도움함수를 사용해서 모든 변수에 대해 NA 값을 0 으로 채워넣기
+  mutate(across(.cols = 확진자:격리해제, .fns = impute_na))
+
+sido_daily_tbl %>% 
+  write_rds("data/sido_daily_tbl.rds")
+```
+
+10만명당 확진자 추세를 시도별로 시각화한다. 17개 시도이나 세종을 제외하여 인구수 기준 10만명당 확진자수를 시각화한다.
+
+```{r clean-sido-viz}
+sido_daily_plotly <- sido_daily_tbl %>% 
+  pivot_longer(- c(`날짜`, `시도`), names_to = "구분", values_to = "값") %>% 
+  filter(구분 == "10만_발생률",
+         !시도 == "세종") %>%  
+  plot_time_series(.date_var      = 날짜, 
+                   .value         = 값, 
+                   .facet_var     = 시도, 
+                   .smooth        = FALSE,
+                   .line_color    = "red",
+                   .facet_ncol    = 4,
+                   .title         = "시도별 10만명당 확진자수", 
+                   .interactive   = FALSE)
+
+sido_daily_g <- sido_daily_plotly +
+  scale_y_continuous(labels = scales::comma) +
+  scale_x_date(labels = scales::date_format(format = "%y-%m")) +
+  facet_wrap(~시도, scales = "fixed") 
+
+sido_daily_g %>% 
+  plotly::ggplotly()
+```
+
+
