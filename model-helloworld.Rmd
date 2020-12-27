@@ -1,0 +1,257 @@
+---
+layout: page
+title: "한국 코로나19"
+subtitle: "예측모형 - 헬로 월드"
+author:
+- name: "이광춘"
+  affiliation: "[Tidyverse Korea](https://www.facebook.com/groups/tidyverse/)"
+date: "`r Sys.Date()`"
+tags: ["데이터 과학", "Data Science", "데이터 사이언스", "코로나", "코로나19", "covid-19", "corona"]
+output:
+  html_document: 
+    include:
+      after_body: footer.html
+      before_body: header.html
+    theme: default
+    toc: yes
+    toc_depth: 2
+    toc_float: true
+    highlight: tango
+    code_folding: show
+    number_section: true
+    self_contained: true
+bibliography: bibliography_corona.bib
+csl: biomed-central.csl
+urlcolor: blue
+linkcolor: blue
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message=FALSE, warning=FALSE,
+                      comment="", digits = 3, tidy = FALSE, prompt = FALSE, fig.align = 'center')
+
+```
+
+
+
+# 확진자 데이터 {#corona-forecast-helloword}
+
+`COVID` 팩키지에서 한국에서 코로나19 검사결과 확진된 시계열 데이터를 얻는다.
+시계열 데이터 예측을 위한 기초 데이터를 준비한다.
+
+
+```{r get-data}
+library(tidyverse)
+library(COVID19)
+library(timetk)
+
+korea_dat <- covid19("KOR", level = 1)
+
+korea_df <- korea_dat %>% 
+  ungroup() %>% 
+  dplyr::select(날짜=date, 누적검사자=tests, 누적확진자=confirmed, 누적회복자=recovered, 누적사망자=deaths) %>% 
+  timetk::pad_by_time(.date_var = 날짜, .by = "day", .pad_value = NA) %>% 
+  mutate(누적검사자 = timetk::ts_impute_vec(누적검사자, period = 1) %>%  ceiling(.),
+         누적회복자 = ifelse(is.na(누적회복자), 0, 누적회복자),
+         누적사망자 = ifelse(is.na(누적사망자), 0, 누적사망자))
+
+korea_daily_df <- korea_df %>% 
+  mutate(검사자 = 누적검사자 - lag(누적검사자, n = 1L),
+         확진자 = 누적확진자 - lag(누적확진자, n = 1L),  
+         회복자 = 누적회복자 - lag(누적회복자, n = 1L),  
+         사망자 = 누적사망자 - lag(누적사망자, n = 1L) ) %>% 
+  drop_na() %>% 
+  select(-contains("누적"))
+
+confirmed_daily_tbl <- korea_daily_df %>% 
+  select(날짜, 확진자) %>% 
+  timetk::pad_by_time(.date_var = 날짜, .by="day", .pad_value = NA)
+
+confirmed_daily_tbl 
+```
+
+# 시각화 {#data-viz}
+
+`timetk` 팩키지 `plot_time_series()` 함수를 사용해서 확진자 추세를 시각화한다.
+
+```{r covid-viz}
+confirmed_daily_tbl  %>% 
+  plot_time_series(.date_var   = 날짜, 
+                   .value      = 확진자, 
+                   .line_color = "#ff0000",
+                   .title      = "코로나19 일별 확진자 추세")
+```
+
+
+# 모형 데이터 {#data-model-data}
+
+## 전체 데이터 {#data-model-fulldata}
+
+`confirmed_daily_tbl` 데이터를 `history_tbl` 데이터프레임으로 저장시켜 명확히 의미를 부여한다.
+`timetk` 팩키지 `future_frame()` 함수로 예측할 기간("1달")으로 데이터프레임을 확장하여 
+관측된 시계열과 예측 시계열을 결합시킨 전체 데이터프레임 데이터를 준비한다.
+`forecast_tbl` 로 예측할 데이터프레임을 따로 떼어둔다.
+
+```{r model-fulldata}
+
+# 전체 시계열 데이터 ----
+full_tbl <- confirmed_daily_tbl %>% 
+  timetk::future_frame(.length_out = "1 month",
+                       .bind_data  = TRUE)
+# 관측 시계열 데이터 ----
+history_tbl <- full_tbl %>% 
+  filter(!is.na(확진자))
+
+# 예측 시계열 데이터 ----
+forecast_tbl <- full_tbl %>% 
+  filter(is.na(확진자))
+
+full_tbl %>% 
+  plot_time_series(.date_var = 날짜, 
+                   .value    = 확진자,
+                   .title    = "코로나19 일별 확진자수")
+```
+
+## 훈련/시험 데이터 {#data-model-train-test}
+
+`time_series_split()` 함수를 사용해서 훈련/시험 표본으로 데이터를 구분한다.
+`assess = 28`을 지정하여 향후 28일 후를 예측하는 모형을 개발한다.
+
+```{r model-train-test}
+splits <- history_tbl %>%
+    time_series_split(날짜, assess = 28, cumulative = TRUE)
+    # time_series_split(날짜, initial = "3 month", assess = 28, cumulative = FALSE)
+
+splits
+```
+
+상기 훈련/시험 데이터 구분한 후 시각화를 통해 확인해보자. `timetk::plot_time_series_cv_plan()` 함수를 사용한다.
+
+```{r model-train-test-split}
+splits %>%
+    tk_time_series_cv_plan() %>%
+    timetk::plot_time_series_cv_plan(날짜, 확진자)
+```
+
+# 피처 공학 {#feature-engineering}
+
+`tidymodels` 생태계의 `recipe` 팩키지 `recipe()` 함수를 사용해서 피쳐 공학(feature engineering) 작업을 수행한다.
+추후, 다양한 피처를 작업할 예정이라 대략적인 틀만 잡아둔다.
+
+```{r feature-engineering}
+library(tidymodels)
+
+recipe_spec <- recipes::recipe(확진자 ~ ., data = training(splits))
+
+recipe_spec %>% prep() %>%  juice()
+```
+
+
+# 모형적합 {#model-fit}
+
+`parsnip` 팩키지의 `linear_reg()` 를 통해 선형회귀(?) 모형을 시계열 데이터에 날짜를 독립변수로 넣어 말도 되지 않지만 가장 단순하게 예측 모형을 적합시킨다. 이를 위해서 `workflow()` 를 사용하는데 기본적으로 피처 공학의 `recipe_spec`이 필요하고 `model_spec`의 모형이 필요하다.
+
+그리고 `fit()` 함수를 사용해서 적합을 시킨다.
+
+```{r fit-model}
+
+model_spec <- linear_reg(
+    mode = "regression") %>% 
+  set_engine("lm")
+
+wkfl_fit_lm <- workflow() %>% 
+  add_recipe(recipe_spec) %>% 
+  add_model(model_spec) %>% 
+  fit(training(splits))
+
+wkfl_fit_lm
+```
+
+# 모형 평가 {#model-evaluate}
+
+`workflow` 객체를 `modeltime` 팩키지 `modeltime_table()` 함수에 넣어 객체로 만든 후에 
+`modeltime_accuracy()` 함수를 사용해서 모형 성능을 파악한다.
+
+```{r evaluate-model-performance}
+library(modeltime)
+
+model_tbl <- modeltime_table(
+    wkfl_fit_lm
+)
+
+model_tbl %>% 
+  modeltime::modeltime_accuracy(testing(splits))
+```
+
+## 시각화 {#model-calibration-viz}
+
+시험데이터를 통해 모형으로 예측한 값을 시각화한다. $R^2$ 값도 80%가 나오는데 시각화를 하니 시험데이터에 대한 적합이 데이터와 동떨어진 것을 확인할 수 있다.
+
+```{r evaluate-model-calibaration}
+calibration_tbl <- model_tbl %>% 
+  modeltime_calibrate(
+    new_data = testing(splits)
+  )
+
+calibration_tbl %>% 
+    modeltime_forecast(
+        new_data      = testing(splits),
+        actual_data   = history_tbl,
+        conf_interval = 0.10
+    ) %>%
+    plot_modeltime_forecast(
+        .legend_max_width = 60,
+        .legend_show = FALSE,
+        .conf_interval_show = TRUE,
+        .conf_interval_alpha = 0.20,
+        .conf_interval_fill = "lightblue",
+        .title = "코로나19 확진자 1개월 예측 - 선형회귀"
+    )
+```
+
+
+# 확진자 예측 {#model-forecast}
+
+앞선 모형은 `history_tbl` 을 훈련/시험 데이터에 대해 적합을 시킨 것이라 ... 이제 시간을 확대하여 `modeltime_refit()` 함수를 사용해서 모형을 전체 데이터에 대해 다시 적합시킨다.
+
+```{r evaluate-model-forecast-refit}
+refit_tbl <- calibration_tbl %>% 
+  modeltime_refit(data = history_tbl)
+```
+
+마지막으로 앞서 구축된 모형을 바탕으로 현재까지 입수된 데이터를 바탕으로 한달 후를 예측한다.
+
+```{r evaluate-model-forecast}
+refit_tbl %>% 
+  modeltime_forecast(
+    new_data    = forecast_tbl,
+    actual_data = history_tbl,
+    conf_interval = 0.5
+  )  %>%
+    plot_modeltime_forecast(
+        .legend_max_width = 25,
+        .conf_interval_fill = "lightblue",
+        .conf_interval_alpha = 0.7,
+        .interactive = FALSE
+    )
+```
+
+
+# 모형과 데이터 저장 {#save-model-forecast}
+
+마지막 단계로 데이터와 모형을 저장하여 다음 단계로 나가기 위한 작업을 수행한다.
+
+```{r save-model-dataset}
+# 데이터 ----
+full_tbl %>% 
+  write_rds("data/full_tbl.rds")
+
+# 모형 ----
+wkfl_fit_lm %>% 
+  write_rds("data/wkfl_fit_lm.rds")
+
+```
+
+

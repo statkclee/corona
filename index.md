@@ -19,6 +19,9 @@ title: "PDF를 데이터로 보는 올바른 자세"
     - [데이터 가져오기 - 팩키지(`COVID19`)](ingest-pkg-data.html)
 - [데이터 정제하기 - cleansing](cleansing-data.html)
 - [탐색적 데이터 분석 - EDA](EDA-data.html)
+    - [EDA - 달력(확진자, 사망자)](EDA-calendar.html)
+- 코로나19 예측
+    - [예측모형 - 헬로 월드](model-helloworld.html)
 
 ### [xwMOOC 오픈 교재](https://statkclee.github.io/xwMOOC/)
 
