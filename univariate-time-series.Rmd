@@ -1,0 +1,100 @@
+---
+layout: page
+title: "한국 코로나19"
+subtitle: "단변량 시계열 예측모형 - ARIMA"
+author:
+- name: "이광춘"
+  affiliation: "[Tidyverse Korea](https://www.facebook.com/groups/tidyverse/)"
+date: "`r Sys.Date()`"
+tags: ["데이터 과학", "Data Science", "데이터 사이언스", "코로나", "코로나19", "covid-19", "corona", "ARIMA", "회귀모형"]
+output:
+  html_document: 
+    include:
+      after_body: footer.html
+      before_body: header.html
+    theme: default
+    toc: yes
+    toc_depth: 2
+    toc_float: true
+    highlight: tango
+    code_folding: show
+    number_section: true
+    self_contained: true
+bibliography: bibliography_corona.bib
+csl: biomed-central.csl
+urlcolor: blue
+linkcolor: blue
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message=FALSE, warning=FALSE,
+                      comment="", digits = 3, tidy = FALSE, prompt = FALSE, fig.align = 'center')
+
+```
+
+
+
+# 데이터와 선형 회귀모형 {#corona-univariate}
+
+[예측모형 - 헬로 월드](model-helloworld.html) 에서 작업한 데이터와 모델을 가져온다.
+
+```{r arima-load-data-model}
+library(tidyverse)
+library(tidymodels)
+
+library(timetk)
+library(modeltime)
+
+# 데이터 ----
+full_tbl <- read_rds("data/full_tbl.rds")
+
+# 모형 ----
+wkfl_fit_lm <- read_rds("data/wkfl_fit_lm.rds")
+```
+
+## 훈련/시험 데이터 분할 {#corona-univariate-split}
+
+예측할 데이터와 모형개발에 활용할 데이터로 나눈 후에 
+모형개발에 활용할 데이터를 훈련/시험 데이터로 나눈다.
+
+```{r load-data-model}
+## 예측 데이터와 모형개발 데이터로 분리
+forecast_tbl <- full_tbl %>% 
+  filter(is.na(확진자))
+
+history_tbl <- full_tbl %>% 
+  filter(!is.na(확진자))
+
+## 훈련/시험 데이터 분할
+
+splits <- history_tbl %>% 
+  time_series_split(date_var    = 날짜,  
+                    assess      = 30,
+                    cumulative  = TRUE)
+splits
+```
+
+훈련/시험 데이터로 잘 나눠졌는지 시각적으로 확인한다.
+
+```{r load-data-model-viz}
+splits %>% 
+  tk_time_series_cv_plan() %>% 
+  plot_time_series_cv_plan(.date_var = 날짜,
+                            .value   = 확진자)
+```
+
+
+# 피처 공학 {#feature-engineering}
+
+`tidymodels` 생태계의 `recipe` 팩키지 `recipe()` 함수를 사용해서 피쳐 공학(feature engineering) 작업을 수행한다.
+추후, 다양한 피처를 작업할 예정이라 대략적인 틀만 잡아둔다.
+
+```{r uni-feature-engineering}
+recipe_spec <- recipes::recipe(확진자 ~ ., data = training(splits))
+
+recipe_spec %>% prep() %>%  juice()
+```
+
+# 
