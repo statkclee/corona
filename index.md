@@ -22,6 +22,7 @@ title: "PDF를 데이터로 보는 올바른 자세"
     - [EDA - 달력(확진자, 사망자)](EDA-calendar.html)
 - 코로나19 예측
     - [예측모형 - 헬로 월드](model-helloworld.html)
+    - [[번외] 예측모형 - ARIMA 회귀모형](regression-arima.html)
 
 ### [xwMOOC 오픈 교재](https://statkclee.github.io/xwMOOC/)
 
