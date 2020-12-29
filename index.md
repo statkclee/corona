@@ -25,6 +25,7 @@ title: "PDF를 데이터로 보는 올바른 자세"
     - [[번외] 예측모형 - ARIMA 회귀모형](regression-arima.html)
     - [단변량 시계열 예측모형](univariate-time-series.html)
         - [단변량 시계열 예측모형 - ARIMA](arima-time-series.html)
+    - [단변량 시계열 변환 후 예측모형](univariate-time-series-trans.html)        
 
 ### [xwMOOC 오픈 교재](https://statkclee.github.io/xwMOOC/)
 

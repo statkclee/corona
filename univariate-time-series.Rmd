@@ -1,7 +1,7 @@
 ---
 layout: page
 title: "한국 코로나19"
-subtitle: "단변량 시계열 예측모형 - ARIMA"
+subtitle: "단변량 시계열 예측모형"
 author:
 - name: "이광춘"
   affiliation: "[Tidyverse Korea](https://www.facebook.com/groups/tidyverse/)"
