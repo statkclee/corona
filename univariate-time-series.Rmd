@@ -113,6 +113,7 @@ recipe_spec %>% prep() %>%  juice()
 
 - ARIMA
 - ETS
+- TBATS
 - Prophet
 
 ## ARIMA {#algorithm-arima}
@@ -154,6 +155,26 @@ wkfl_fit_ets <-  workflows::workflow() %>%
 wkfl_fit_ets
 ```
 
+## TBATS {#algorithm-tbats}
+
+TBATS를 예측모형으로 적합시킨다.
+
+```{r tbats-fit}
+
+mdl_tbats_spec <- seasonal_reg(
+  mode              = "regression",
+  seasonal_period_1 = "auto"
+) %>%
+    set_engine("tbats")
+
+wkfl_fit_tbats <-  workflows::workflow() %>% 
+  add_recipe(recipe_spec) %>% 
+  add_model(mdl_tbats_spec) %>% 
+  fit(training(splits))
+
+wkfl_fit_tbats
+```
+
 ## Prophet {#algorithm-prophet}
 
 페이스북에서 개발한 Prophe 예측모형으로 적합시킨다.
@@ -183,11 +204,13 @@ wkfl_fit_prophet
 model_tbl <- modeltime_table(
     wkfl_fit_arima,
     wkfl_fit_ets,
+    wkfl_fit_tbats,
     wkfl_fit_prophet
     ) %>% 
   update_model_description(.model_id = 1, "ARIMA") %>% 
   update_model_description(.model_id = 2, "ETS") %>% 
-  update_model_description(.model_id = 3, "Prophet")
+  update_model_description(.model_id = 3, "TBATS") %>% 
+  update_model_description(.model_id = 4, "Prophet")
 
 model_tbl %>% 
   modeltime::modeltime_accuracy(testing(splits))
@@ -263,6 +286,7 @@ corona_fcst_list <- list(
     wkfl_fit_lm      = wkfl_fit_lm,
     wkfl_fit_arima   = wkfl_fit_arima,
     wkfl_fit_ets     = wkfl_fit_ets,
+    wkfl_fit_tbats   = wkfl_fit_tbats,
     wkfl_fit_prophet = wkfl_fit_prophet
   )
 )
