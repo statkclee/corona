@@ -1,0 +1,396 @@
+---
+layout: page
+title: "한국 코로나19"
+subtitle: "단변량 시계열 변환 후 예측모형 - 시간특징"
+author:
+- name: "이광춘"
+  affiliation: "[Tidyverse Korea](https://www.facebook.com/groups/tidyverse/)"
+date: "`r Sys.Date()`"
+tags: ["데이터 과학", "Data Science", "데이터 사이언스", "코로나", "코로나19", "covid-19", "corona", "ARIMA", "회귀모형"]
+output:
+  html_document: 
+    include:
+      after_body: footer.html
+      before_body: header.html
+    theme: default
+    toc: yes
+    toc_depth: 2
+    toc_float: true
+    highlight: tango
+    code_folding: show
+    number_section: true
+    self_contained: true
+bibliography: bibliography_corona.bib
+csl: biomed-central.csl
+urlcolor: blue
+linkcolor: blue
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message=FALSE, warning=FALSE,
+                      comment="", digits = 3, tidy = FALSE, prompt = FALSE, fig.align = 'center')
+
+```
+
+<center>
+![](fig/univariate-model-with-time-variable.png)
+</center>
+
+# 데이터와 예측모형 [^roger-ts-book] [^fpp] {#corona-univariate}
+
+[^roger-ts-book]: [Roger D. Peng (2020-04-02), "A Very Short Course on Time Series Analysis", bookdown.org](https://bookdown.org/rdpeng/timeseriesbook/)
+
+[^fpp]: [Rob J Hyndman and George Athanasopoulos, "Forecasting: Principles and Practice", Monash University, Australia](https://otexts.com/fppkr/)
+
+앞서 작업한 데이터와 선형회귀모형과 ARIMA 모형을 저장한 `data/corona_fcst_list.rds` 리스트 객체를 단변량 시계열 분석 작업을 위해서 풀어둔다.
+
+```{r arima-load-data-model}
+library(tidyverse)
+library(tidymodels)
+library(lubridate)
+
+library(timetk)
+library(modeltime)
+
+# 데이터 + 모형 ----
+corona_fcst_list <- read_rds("data/corona_fcst_list.rds")
+
+# 데이터 ----
+full_tbl <- corona_fcst_list$data
+
+# 모형 ----
+wkfl_fit_arima <- corona_fcst_list$model$wkfl_fit_arima
+wkfl_fit_ets <- corona_fcst_list$model$wkfl_fit_ets
+wkfl_fit_tbats <- corona_fcst_list$model$wkfl_fit_tbats
+wkfl_fit_prophet <- corona_fcst_list$model$wkfl_fit_prophet
+```
+
+## 훈련/시험 데이터 분할 {#corona-univariate-split}
+
+예측할 데이터와 모형개발에 활용할 데이터로 나눈 후에 
+모형개발에 활용할 데이터를 훈련/시험 데이터로 나눈다.
+
+```{r load-data-model}
+## 예측 데이터와 모형개발 데이터로 분리
+forecast_tbl <- full_tbl %>% 
+  filter(is.na(확진자))
+
+history_tbl <- full_tbl %>% 
+  filter(!is.na(확진자)) %>% 
+  mutate(확진자 = log1p(확진자))
+```
+
+# 변수변환 {#corona-univariate-transformation}
+
+## 목표변수 - $Y$ {#corona-univariate-transformation-y}
+
+`log1p()` 함수는 `base` 팩키지에 포함된 함수로 로그값에 1을 더해 `Inf`가 발생되는 것을 막아준다.
+원척도로 되돌리려면 `expm1()` 함수를 사용하면 된다.
+
+```{r visualize-univariate}
+full_tbl %>% 
+  filter(!is.na(확진자)) %>% 
+  plot_time_series_regression(.date_var     = 날짜,
+                              .formula      = 확진자 ~ as.numeric(날짜) +
+                                                       wday(날짜,  label = TRUE) +
+                                                       month(날짜, label = TRUE),
+                              .show_summary = TRUE,
+                              .interactive  = FALSE)
+```
+
+```{r visualize-univariate-after}
+full_tbl %>% 
+  filter(!is.na(확진자)) %>% 
+  plot_time_series_regression(.date_var     = 날짜,
+                              .formula      = base::log1p(확진자) ~ as.numeric(날짜) +
+                                                                    wday(날짜,  label = TRUE) +
+                                                                    month(날짜, label = TRUE),
+                              .show_summary = TRUE,
+                              .interactive  = FALSE)
+
+```
+
+## 예측변수 - $X$ {#corona-univariate-transformation-x}
+
+날짜와 시간정보는 그 내부에 상당히 많은 정보가 포함되어 있다.
+날짜로부터 여러 시간과 연관된 많은 정보를 추출하여 예측력을 높이는데 사용한다.
+
+```{r time-signature}
+history_time_feature_tbl <- history_tbl %>% 
+  tk_augment_timeseries_signature(.date_var = 날짜) %>% 
+  select(-year, -diff, -matches("(iso)|(xts)|(hour)|(minute)|(second)|(am.pm)")) 
+
+history_time_feature_tbl %>% 
+  glimpse()
+```
+
+## 훈련/시험 데이터 분할
+
+```{r time-signature-split}
+# splits <- history_tbl %>%
+splits <- history_time_feature_tbl %>%
+  time_series_split(date_var    = 날짜,  
+                    assess      = 30,
+                    cumulative  = TRUE)
+splits
+```
+
+훈련/시험 데이터로 잘 나눠졌는지 시각적으로 확인한다.
+
+```{r load-data-model-viz}
+splits %>% 
+  tk_time_series_cv_plan() %>% 
+  plot_time_series_cv_plan(.date_var = 날짜,
+                            .value   = 확진자)
+```
+
+
+# 피처 공학 {#feature-engineering}
+
+`tidymodels` 생태계의 `recipe` 팩키지 `recipe()` 함수를 사용해서 피쳐 공학(feature engineering) 작업을 수행한다.
+날짜와 시간정보는 그 내부에 상당히 많은 정보가 포함되어 훈련/시험 데이터를 나눌 때 관련 내용을 준비해도 좋지만,
+`recipe()` 를 정의할 때 시계열 날짜 및 시간 관련 특징을 추출하여 예측력을 높이는 변수로 준비한다.
+시각관련 특징이 추출되면 연속형 변수는 정규화 범주형 변수는 가변수(one-hot) 변환을 사전 수행하여 
+모형 행렬(Design Matrix)을 준비한다.
+
+```{r uni-feature-engineering}
+recipe_spec <- recipes::recipe(확진자 ~ ., data = training(splits)) %>% 
+    # 시계열 특징 추출
+    # step_timeseries_signature(날짜) %>%
+    # step_rm(matches("(iso)|(xts)|(hour)|(minute)|(second)|(am.pm)")) %>% 
+    
+    # 정규화
+    step_normalize(matches("(index.num)|(year)|(yday)")) %>%
+    
+    # 범주형 변수
+    step_dummy(all_nominal(), one_hot = TRUE) %>% 
+  
+    # 변동성이 없는 변수 제거
+    step_nzv(all_predictors()) %>% 
+    step_zv(all_predictors())
+    
+    # 소임을 다했음으로... 삭제
+    # step_rm(날짜, 날짜_year)
+
+```
+
+# 단변량 예측 알고리즘 {#algorithm-univariate}
+
+단변량 예측 알고리즘으로 다음 세가지 대표적인 알고리즘을 적용시킨다.
+
+- ARIMA
+- ETS
+- TBATS
+- Prophet
+
+## ARIMA {#algorithm-arima}
+
+대표적인 시계열 데이터 예측모형 ARIMA로 적합시킨다.
+
+```{r arima-fit, eval = FALSE}
+# xreg is rank deficient
+mdl_arima_spec <- arima_reg() %>%
+    set_engine("auto_arima")
+
+wkfl_fit_arima <-  workflows::workflow() %>% 
+  add_recipe(recipe_spec) %>% 
+  add_model(mdl_arima_spec) %>% 
+  fit(training(splits))
+
+wkfl_fit_arima
+```
+
+## ETS {#algorithm-ets}
+
+지수평활(exponential smoothing) 중 ETS(Error-Trend-Season)를 예측모형으로 적합시킨다.
+
+```{r ets-fit}
+
+mdl_ets_spec <- exp_smoothing(
+    error   = "auto",
+    trend   = "auto",
+    season  = "auto",
+    damping = "auto"
+) %>%
+    set_engine("ets")
+
+wkfl_fit_ets <-  workflows::workflow() %>% 
+  add_recipe(recipe_spec) %>% 
+  add_model(mdl_ets_spec) %>% 
+  fit(training(splits))
+
+wkfl_fit_ets
+```
+
+## TBATS {#algorithm-tbats}
+
+TBATS를 예측모형으로 적합시킨다.
+
+```{r tbats-fit}
+
+mdl_tbats_spec <- seasonal_reg(
+  mode              = "regression",
+  seasonal_period_1 = "auto"
+) %>%
+    set_engine("tbats")
+
+wkfl_fit_tbats <-  workflows::workflow() %>% 
+  add_recipe(recipe_spec) %>% 
+  add_model(mdl_tbats_spec) %>% 
+  fit(training(splits))
+
+wkfl_fit_tbats
+```
+
+## Prophet {#algorithm-prophet}
+
+페이스북에서 개발한 Prophet 예측모형으로 적합시킨다.
+
+```{r prophet-fit}
+
+mdl_prophet_spec <- prophet_reg(
+) %>%
+    set_engine("prophet")
+
+wkfl_fit_prophet <-  workflows::workflow() %>% 
+  add_recipe(recipe_spec) %>% 
+  add_model(mdl_prophet_spec) %>% 
+  fit(training(splits))
+
+wkfl_fit_prophet
+```
+
+
+## GLM {#algorithm-glm}
+
+GLM 예측모형으로 적합시킨다.
+
+```{r glm-fit, eval = FALSE}
+mdl_glment_spec <- linear_reg(
+    penalty = 0.1,
+    mixture = 0.5
+) %>%
+    set_engine("glmnet")
+
+wkfl_fit_glmnet <- workflow() %>%
+    add_recipe(recipe_spec) %>%
+    add_model(mdl_glment_spec) %>%
+    fit(training(splits))
+
+wkfl_fit_glmnet
+```
+
+# 모형 평가 {#ets-model-evaluate}
+
+`workflow` 객체를 `modeltime` 팩키지 `modeltime_table()` 함수에 넣어 객체로 만든 후에,
+추가로 지수평활법 EST 예측모형을 추가한다.
+`modeltime_accuracy()` 함수를 사용해서 모형 성능을 파악한다.
+
+```{r evaluate-model-performance}
+model_tbl <- modeltime_table(
+    # wkfl_fit_arima,
+    wkfl_fit_ets,
+    wkfl_fit_tbats,
+    wkfl_fit_prophet
+    # wkfl_fit_glmnet
+    ) %>% 
+  # update_model_description(.model_id = 1, "ARIMA") %>% 
+  update_model_description(.model_id = 1, "ETS") %>% 
+  update_model_description(.model_id = 2, "TBATS") %>% 
+  update_model_description(.model_id = 3, "Prophet") 
+  # update_model_description(.model_id = 4, "GLMNET")
+
+model_tbl %>% 
+  modeltime::modeltime_accuracy(testing(splits))
+```
+
+## 시각화 {#model-calibration-viz-ets}
+
+시험데이터를 통해 모형으로 예측한 값을 시각화한다. 
+ETS MAE 값이 ARIMA 예측모형과 별다른 차이가 나고 있지 않지만, 
+신뢰구간이 생긴 것은 그나마 다행이다.
+
+```{r arima-evaluate-model-ets}
+calibration_tbl <- model_tbl %>% 
+  modeltime_calibrate(
+    new_data = testing(splits)
+  )
+
+calibration_tbl %>% 
+    modeltime_forecast(
+        new_data      = testing(splits),
+        actual_data   = history_tbl,
+        keep_data     = TRUE,
+        conf_interval = 0.10
+    ) %>%
+    mutate(
+        across(.cols = c(.value, 확진자), .fns = expm1) # log1p --> expm1 원척도로 변환
+    ) %>% 
+    plot_modeltime_forecast(
+        .legend_max_width    = 60,
+        .legend_show         = TRUE,
+        .conf_interval_show  = TRUE,
+        .conf_interval_alpha = 0.20,
+        .conf_interval_fill  = "lightblue",
+        .title = "코로나19 확진자 1개월 예측"
+    )
+```
+
+# 확진자 예측 {#arima-model-forecast}
+
+앞선 모형은 `history_tbl` 을 훈련/시험 데이터에 대해 적합을 시킨 것이라 ... 이제 시간을 확대하여 `modeltime_refit()` 함수를 사용해서 모형을 전체 데이터에 대해 다시 적합시킨다.
+
+```{r arima-evaluate-model-forecast-refit, }
+refit_tbl <- calibration_tbl %>% 
+  modeltime_refit(data = history_time_feature_tbl)
+```
+
+마지막으로 앞서 구축된 모형을 바탕으로 현재까지 입수된 데이터를 바탕으로 한달 후를 예측한다.
+
+```{r arima-evaluate-model-forecast}
+refit_tbl %>% 
+  modeltime_forecast(
+    new_data    = forecast_tbl,
+    actual_data = history_time_feature_tbl,
+    conf_interval = 0.3
+  )  %>%
+  mutate(
+        across(.cols = c(.value), .fns = expm1) # log1p --> expm1 원척도로 변환
+  ) %>% 
+  plot_modeltime_forecast(
+      .legend_max_width = 25,
+      .conf_interval_fill = "lightblue",
+      .conf_interval_alpha = 0.7,
+      .interactive = FALSE
+  )
+```
+
+# 모형과 데이터 저장 {#save-model-forecast}
+
+마지막 단계로 데이터와 모형을 저장하여 다음 단계로 나가기 위한 작업을 수행한다.
+
+```{r ets-save-model-dataset}
+corona_fcst_list <- list(
+  
+  # 데이터 ---
+  data = full_tbl, 
+  
+  # 예측모형 ----
+  model = list(
+    wkfl_fit_ets     = wkfl_fit_ets,
+    wkfl_fit_tbats   = wkfl_fit_tbats,
+    wkfl_fit_prophet = wkfl_fit_prophet
+    # wkfl_fit_glmnet  = wkfl_fit_glmnet
+  )
+)
+
+# 모형 + 데이터 저장 ----
+corona_fcst_list %>% 
+  write_rds("data/corona_fcst_list.rds")
+```
+
+
+
+
