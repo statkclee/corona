@@ -1,0 +1,71 @@
+---
+layout: page
+title: "한국 코로나19"
+subtitle: "새해 복 많이 받으세요!!!"
+author:
+- name: "이광춘"
+  affiliation: "[Tidyverse Korea](https://www.facebook.com/groups/tidyverse/)"
+date: "`r Sys.Date()`"
+tags: ["데이터 과학", "Data Science", "데이터 사이언스", "코로나", "코로나19", "covid-19", "corona", "새해 복 많이 받으세요", "happy new year"]
+output:
+  html_document: 
+    include:
+      after_body: footer.html
+      before_body: header.html
+    theme: default
+    toc: yes
+    toc_depth: 2
+    toc_float: true
+    highlight: tango
+    code_folding: show
+    number_section: true
+    self_contained: true
+bibliography: bibliography_corona.bib
+csl: biomed-central.csl
+urlcolor: blue
+linkcolor: blue
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message=FALSE, warning=FALSE,
+                      comment="", digits = 3, tidy = FALSE, prompt = FALSE, fig.align = 'center')
+
+```
+
+<center>
+</center>
+
+# 새해 복 많이 받으세요 !!! {#corona-flag-data}
+
+
+```{r happy-new-year}
+library(tidyverse)
+library(gganimate)
+library(magick)
+library(extrafont)
+loadfonts()
+
+## 이미지 ----
+meetup_pic <- image_read("fig/tidyverse-meetup.jpg") %>% 
+  image_resize("38%")
+
+message_pic <- image_read("fig/happy_new_year.svg")
+
+r_logo <- image_read("fig/r-logo.svg") %>% 
+  image_resize("10%") %>% 
+  image_transparent("white")
+
+## 조합 ----
+happy_new_year <- meetup_pic %>% 
+  image_composite(r_logo, offset = "+470+350") %>% 
+  image_composite(message_pic)
+
+happy_new_year
+
+happy_new_year %>% 
+  image_write("fig/happy_new_year_greentings.png")
+
+```
+
