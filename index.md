@@ -21,6 +21,7 @@ title: "PDF를 데이터로 보는 올바른 자세"
 - [탐색적 데이터 분석 - EDA](EDA-data.html)
     - [EDA - 달력(확진자, 사망자)](EDA-calendar.html)
     - [EDA - 국가별 코로나 확진자 (2020-12-31)](EDA-flag.html)
+    - [EDA - 국가별 코로나 확진자 지도](EDA-flag-map.html)
     - [새해 복 많이 받으세요!!!](happy-new-year.html)
 - [코로나19 예측 모형](forecasting-model.html)
     - [예측모형 - 헬로 월드](model-helloworld.html)
