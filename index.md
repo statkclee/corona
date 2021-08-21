@@ -1,6 +1,6 @@
 ---
 layout: page
-title: "PDF를 데이터로 보는 올바른 자세"
+title: "코로나19와 함께 하는 R"
 ---
 
 > ### AI is a Superpower {.callout}
@@ -29,6 +29,6 @@ title: "PDF를 데이터로 보는 올바른 자세"
         - [단변량 시계열 예측모형 - ARIMA](arima-time-series.html)
     - [단변량 시계열 변환 후 예측모형](univariate-time-series-trans.html)
     - [단변량 시계열 변환 후 예측모형 - 시간특징](uni-ts-trans-signature.html)
+- [코로나 바이러스 3D](corona-virus-3d.html)
 
-### [xwMOOC 오픈 교재](https://statkclee.github.io/xwMOOC/)
 
