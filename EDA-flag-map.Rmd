@@ -1,0 +1,244 @@
+---
+layout: page
+title: "한국 코로나19"
+subtitle: "EDA - 국가별 코로나 확진자  지도"
+author:
+- name: "이광춘"
+  affiliation: "[Tidyverse Korea](https://www.facebook.com/groups/tidyverse/)"
+date: "`r Sys.Date()`"
+tags: ["데이터 과학", "Data Science", "데이터 사이언스", "코로나", "코로나19", "covid-19", "corona", "국기", "flag", "지도"]
+output:
+  html_document: 
+    include:
+      after_body: footer.html
+      before_body: header.html
+    theme: default
+    toc: yes
+    toc_depth: 2
+    toc_float: true
+    highlight: tango
+    code_folding: show
+    number_section: true
+    self_contained: true
+bibliography: bibliography_corona.bib
+csl: biomed-central.csl
+urlcolor: blue
+linkcolor: blue
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message=FALSE, warning=FALSE,
+                      comment="", digits = 3, tidy = FALSE, prompt = FALSE, fig.align = 'center')
+
+```
+
+<center>
+</center>
+
+# 코로나 확진 데이터 [^flag-corona] {#corona-flag-data}
+
+[^flag-corona]: [R Functions and Packages for Political Science Analysis, (2020-12-20), "Add flags to graphs with ggimage package in R", R STATISTICS FOR POLITICAL SCIENCE](https://rforpoliticalscience.com/2020/12/22/add-flags-to-graphs-with-ggimage-package-in-r/)
+
+코로나 확진 데이터를 누적 기준으로 국가별로 확보한다.
+
+
+```{r corona-dataset}
+library(tidyverse)
+library(COVID19)
+
+get_covid_data <- function(country_code = "KOR") {
+  
+  country_dat <- covid19(country_code, level = 1)
+  
+  country_tbl <- country_dat %>% 
+    ungroup() %>% 
+    dplyr::select(날짜=date, 누적검사자=tests, 누적확진자=confirmed, 누적회복자=recovered, 누적사망자=deaths) %>% 
+    mutate(country = country_code) %>% 
+    relocate(country, .before = 날짜) %>% 
+    drop_na()
+
+  return(country_tbl)
+}
+
+korea_tbl <- get_covid_data("KOR")
+
+korea_tbl
+```
+
+# 지도 {#flag-map}
+
+`rnaturalearth` 팩키지의 `ne_countries()` 함수를 사용해서 국가별 세계 지도를 가져온다.
+변수를 하나 선택하여 시각화한다.
+
+```{r map-data}
+library(rnaturalearth)
+# install.packages("rgeos")
+# install.packages("rnaturalearthdata")
+
+world_map <- ne_countries(scale = "medium", returnclass = "sf")
+
+world_map %>%
+  ggplot() + geom_sf(aes(fill = subregion), 
+                     position = "identity") +
+  theme(legend.position = "none")
+
+```
+
+# 국기(flag) {#country-flag}
+
+`ggimage` 팩키지 내부에 `geom_flag()`를 활용하여 지도를 `ggplot`에 구현할 수 있도록 한다.
+`geom_flag()` 함수는 `ISO2` 기준에 맞춰 국가코드가 정리되어야 하기 때문에 `countrycode` 팩키지의 
+`countrycode()` 함수를 참고한다. 추가로 `? codelist` 명령어를 통해서 다양한 변환에 대한 코드집을 확인할 수 있다.
+
+```{r country-flag}
+library(countrycode)
+library(ggimage)
+
+flag_tbl <- korea_tbl %>% 
+  mutate(continent    = countrycode(country, origin = 'iso3c', destination = 'continent')) %>%
+  mutate(country_name = countrycode(country, origin = 'iso3c', destination = 'country.name')) %>% 
+  mutate(iso2         = countrycode(country, origin = 'iso3c', destination = 'iso2c')) %>% 
+  group_by(iso2, continent, country_name) %>% 
+  summarise(날짜 = max(날짜),
+            사망자 = max(누적사망자))
+
+continent_palette <- c("Americas" = "#0084ff", "Asia" = "#44bec7", "Europe" = "#ffc300", "Oceania" = "#fa3c4c")
+  
+flag_tbl %>% 
+  ggplot(aes(x = reorder(country_name, 사망자), y = 사망자, fill = continent)) + 
+  geom_flag(y = -50, aes(image = iso2), size = 0.15)  +
+       geom_bar(stat = "identity") + 
+       labs(title    = "국가별 코로나 19 사망자 현황",
+            subtitle = "Source: COVID 19 Data Hub, 2020-12-31 기준",
+            x        = "",
+            y        = "코로나-19 사망자 수") +
+  scale_y_continuous(labels = scales::comma) +
+  coord_flip() +
+  expand_limits(x = -1, y = -200) +
+  scale_fill_manual(values = continent_palette) +
+  theme_bw(base_family = "AppleGothic")
+
+```
+
+# 지도 + 국기(flag) {#country-flag-map}
+
+대한민국 국기를 지도위에 표현해보자.
+
+## 지도와 사망자 데이터 결합 {#country-flag-map-merge}
+
+지도와 코로나19 사망자 데이터를 `iso2` 기준 즉 "KR" 을 키값으로 결합시킨다.
+
+```{r map-flag-merge}
+# 데이터 결합
+world_flag_sf <- world_map %>% 
+  left_join(flag_tbl, by = c("iso_a2" = "iso2"))
+
+world_flag_sf %>% 
+  filter(iso_a2 == "KR")
+```
+
+## 국가 위경도 {#country-flag-map-lnglat}
+
+국기를 지도위에 표시하기 위해서는 위도와 경도가 필요하다. 이를 위해서 데이터를 읽어와서 데이터프레임으로 준비한다.
+
+```{r map-flag-merge-lnglat}
+library(rvest)
+
+coord <- read_html("https://developers.google.com/public-data/docs/canonical/countries_csv")
+
+coord_tables <- coord %>% html_table(header = TRUE, fill = TRUE)
+
+coord_tbl <- coord_tables[[1]] %>% as_tibble()
+
+coord_tbl
+```
+
+## 지도 + 위경도 {#country-flag-map-lnglat-merge}
+
+지도에 코로나 19 사망자 정보가 포함되어 있는데 마찬가지 방법으로 위경도 정보도 붙인다.
+
+```{r map-flag-merge-lnglat2}
+world_flag_coord_sf <- world_flag_sf %>% 
+  left_join(coord_tbl, by = c("iso_a2" = "country"))
+
+world_flag_coord_sf %>% 
+  filter(iso_a2 == "KR")
+```
+
+## 대한민국 사망자 지도 {#country-flag-map-lnglat-merge-viz}
+
+다음 단계로 지도위에 사망자 수와 국기를 함게 시각화한다.
+
+```{r map-flag-merge-lnglat-death} 
+world_flag_coord_sf %>% 
+  filter(iso_a2 == "KR") %>% 
+  ggplot() + geom_sf(aes(fill = 사망자), 
+                     position = "identity") +
+  ggimage::geom_flag(aes(longitude, latitude, image = iso_a2), size = 0.2) +
+  geom_label(aes(longitude+1, latitude+1, label = factor(sovereignt)))+
+  theme_void(base_family = "AppleGothic")
+```
+
+
+# 주요 국가 시각화 {#get-main-country-viz}
+
+[디지털 뉴딜](https://statkclee.github.io/ds-authoring/krila-digital-new-deal-text.html) 웹사이트에서 대한민국과 비교한 다른 국가를 비교해보자. 
+
+```{r get-main-country}
+main_country_name <- c("South Korea", "Italy", "United Kingdom", "Canada", "France", "Australia", "Spain", "United States", "India", "People's Republic of China", "Russia")
+
+main_country_iso3c <- countryname(main_country_name, destination = 'iso3c')
+
+countries_dat <- map_df(main_country_iso3c, get_covid_data)
+
+countries_tbl <- countries_dat %>% 
+  mutate(continent    = countrycode(country, origin = 'iso3c', destination = 'continent')) %>%
+  mutate(country_name = countrycode(country, origin = 'iso3c', destination = 'country.name')) %>% 
+  mutate(iso2         = countrycode(country, origin = 'iso3c', destination = 'iso2c')) %>% 
+  group_by(iso2, continent, country_name) %>% 
+  summarise(날짜 = max(날짜),
+            사망자 = max(누적사망자))
+
+countries_tbl
+```
+
+## 데이터 결합 {#main-country-merge}
+
+지도에 사망자를 결합시키고 국기의 위경도 정보도 함께 붙여둔다.
+
+```{r merge-dataset}
+main_country_iso2c <- countryname(main_country_name, destination = 'iso2c')
+
+main_flag_coord_sf <- world_map %>% 
+  left_join(countries_tbl, by = c("iso_a2" = "iso2")) %>% 
+  left_join(coord_tbl, by = c("iso_a2" = "country")) %>% 
+  mutate(사망자     = ifelse(is.na(사망자), 0, 사망자),
+         iso_a2     = ifelse(iso_a2 %in% main_country_iso2c, iso_a2, NA),
+         sovereignt = ifelse(iso_a2 %in% main_country_iso2c, sovereignt, NA))
+
+```
+
+
+## 시각화 {#get-main-country-viz}
+
+앞서 개발한 `ggplot`에 다른 국가를 지도위에 추가하여 시각화한다.
+
+```{r get-main-country-viz}
+
+main_flag_coord_sf %>% 
+  ggplot() + geom_sf(aes(fill = 사망자), 
+                     position = "identity") +
+  ggimage::geom_flag(aes(longitude, latitude, image = iso_a2), size = 0.03) +
+  geom_label(aes(longitude+10, latitude+10, 
+                 label      = factor(sovereignt),
+                 nudge_x    = 3,
+                 nudge_y    = 3,
+                 label.size = 0.05))+
+  theme_void(base_family = "AppleGothic") + 
+  scale_fill_viridis_c()
+```
+
+
+
